@@ -9,44 +9,40 @@ from cmsis_svd.parser import SVDParser
 SVD_DATA_DIR = "."
 parser = SVDParser.for_packaged_svd("STMicro", "STM32F103xx.svd")
 
-for peripheral in parser.get_device().peripherals:
-    print("%s @ 0x%08x" % (peripheral.name, peripheral.base_address))
-
-exit()
-
 program = getCurrentProgram()
 fpapi = FlatProgramAPI(program)
 
-memory_map_raw = open("/home/alex/GitHub/ghidra-label-from-memory-map/stm32f103zg", "r").readlines()
 memory_map = dict()
-
-for line in memory_map_raw:
-
-    line = line.strip("\n")
-    chunks = line.split(" ")
+ 
+for per in parser.get_device().peripherals:
+    per_name = per.name
+    per_base = per.base_address
     
-    start_ = chunks[0].replace("0x", "") + chunks[1]
-    end_ = chunks[3].replace("0x", "") + chunks[4]
-    name = '_'.join(chunks[5:])
-    
-    start = bytearray.fromhex(start_) # ghidra is using python 2
-    start.append(b'\\')
-    start.reverse()
+    for reg in per.registers:
+        reg_name = "mmio:" + per_name + ":" + reg.name
+        reg_addr = per_base + reg.address_offset
 
-    end = bytearray.fromhex(end_)
-    end.append(b'\\')
-    end.reverse()
+        for off in range(reg.size//8):
 
-    memory_map[name] = (start, end)
+            addr_ = reg_addr + off
 
-print(memory_map)
+            addr = addr_.to_bytes(4, byteorder='little')
+            addr ="{}".format(''.join('\\x{:02x}'.format(b) for b in addr))
 
-for region in memory_map:
+            memory_map[reg_name + "+" + str(off)] = addr
 
-    addr = memory_map[region][0]
-    results = fpapi.findBytes(None, str(addr), 500)
+total = 0
+
+for label in memory_map:
+
+    addr = memory_map[label]
+    results = fpapi.findBytes(None, addr, 500)
 
     for r in results:
-        fpapi.createLabel(r, region, True)
+        fpapi.createLabel(r, label, True)
 
-    print("Created {} labels for {}".format(len(results), region))
+    total += len(results)
+
+    print("Created {} labels for {} ({})".format(len(results), label, addr))
+
+print("Creates {} labels total".format(total))
